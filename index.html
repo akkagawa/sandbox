@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Directory Listing</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; }
+  h1 { margin-bottom: 10px; }
+  ul { list-style-type: none; padding-left: 0; }
+  li { margin: 6px 0; }
+  a { text-decoration: none; color: #0645AD; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>Directory Listing</h1>
+<ul id="file-list"></ul>
+
+<script>
+  const owner = "YOUR_USERNAME";
+  const repo = "YOUR_REPO_NAME";
+  const branch = "main";
+
+  async function loadFiles() {
+    const url = `https://api.github.com/repos/akkagawa/sandbox/contents/`;
+    const response = await fetch(url);
+    const files = await response.json();
+
+    const list = document.getElementById("file-list");
+
+    files.forEach(item => {
+      if (item.name === "index.html") return; // hide index file
+
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = item.name;
+      link.textContent = item.name;
+
+      li.appendChild(link);
+      list.appendChild(li);
+    });
+  }
+
+  loadFiles();
+</script>
+</body>
+</html>
