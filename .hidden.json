@@ -1,0 +1,9 @@
+{
+  "exclude": [
+    "private",
+    "drafts",
+    "archive",
+    "node_modules",
+    ".github"
+  ]
+}
