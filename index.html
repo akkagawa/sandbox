@@ -6,45 +6,151 @@
 <style>
   body { font-family: Arial, sans-serif; padding: 20px; }
   h1 { margin-bottom: 10px; }
-  ul { list-style-type: none; padding-left: 0; }
-  li { margin: 6px 0; }
+  ul { list-style-type: none; padding-left: 1.2rem; }
+  li { margin: 4px 0; }
   a { text-decoration: none; color: #0645AD; }
   a:hover { text-decoration: underline; }
+  .meta { color: #555; font-size: 0.85em; margin-left: 0.4rem; }
+  details > summary { cursor: pointer; }
+  .icon { margin-right: 0.25rem; }
 </style>
 </head>
 <body>
 <h1>Directory Listing</h1>
-<ul id="listing"></ul>
+<div id="listing">Loading…</div>
 
 <script>
-  const owner = "akkagawa";
-  const repo = "sandbox";
+  const owner  = "akkagawa";
+  const repo   = "sandbox";
   const branch = "main";
+
+  let excluded = [];
+
+  async function loadHiddenConfig() {
+    try {
+      const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/.hidden.json`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const json = await res.json();
+        excluded = json.exclude || [];
+      }
+    } catch (e) {
+      console.warn("No .hidden.json found or failed to load.");
+    }
+  }
+
+  function isExcluded(item) {
+    return excluded.some(ex => item.path.startsWith(ex));
+  }
 
   async function fetchDir(path = "") {
     const api = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
     const res = await fetch(api);
+    if (!res.ok) throw new Error(`Failed to fetch ${path}`);
     return res.json();
+  }
+
+  async function fetchLastModified(path) {
+    try {
+      const api = `https://api.github.com/repos/${owner}/${repo}/commits?path=${encodeURIComponent(path)}&per_page=1`;
+      const res = await fetch(api);
+      if (!res.ok) return null;
+      const commits = await res.json();
+      if (!Array.isArray(commits) || commits.length === 0) return null;
+      return commits[0].commit.author.date;
+    } catch {
+      return null;
+    }
+  }
+
+  function formatSize(bytes) {
+    if (bytes == null) return "";
+    if (bytes < 1024) return bytes + " B";
+    const units = ["KB","MB","GB","TB"];
+    let i = -1;
+    do {
+      bytes /= 1024;
+      i++;
+    } while (bytes >= 1024 && i < units.length - 1);
+    return bytes.toFixed(1) + " " + units[i];
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    return d.toISOString().slice(0,10);
+  }
+
+  function fileIcon(name) {
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".md")) return "📄";
+    if (lower.endsWith(".html") || lower.endsWith(".htm")) return "🌐";
+    if (lower.endsWith(".js")) return "📜";
+    if (lower.endsWith(".css")) return "🎨";
+    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".svg")) return "🖼️";
+    if (lower.endsWith(".pdf")) return "📕";
+    if (lower.endsWith(".csv") || lower.endsWith(".tsv") || lower.endsWith(".xlsx")) return "📊";
+    return "📄";
   }
 
   async function buildList(path = "") {
     const items = await fetchDir(path);
     const ul = document.createElement("ul");
 
+    // sort: dirs first, then files, alphabetically
+    items.sort((a, b) => {
+      if (a.type === b.type) return a.name.localeCompare(b.name);
+      return a.type === "dir" ? -1 : 1;
+    });
+
     for (const item of items) {
       if (item.name === "index.html" && path === "") continue;
+      if (isExcluded(item)) continue;
 
       const li = document.createElement("li");
 
       if (item.type === "dir") {
-        li.innerHTML = `<span class="folder">${item.name}/</span>`;
-        const subList = await buildList(item.path);
-        li.appendChild(subList);
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.innerHTML = `<span class="icon">📁</span>${item.name}/`;
+        details.appendChild(summary);
+
+        // lazy-load subfolder on first open
+        details.addEventListener("toggle", async () => {
+          if (details.open && details.children.length === 1) {
+            const subList = await buildList(item.path);
+            details.appendChild(subList);
+          }
+        }, { once: true });
+
+        li.appendChild(details);
       } else {
         const link = document.createElement("a");
-        link.href = item.path;
+        link.href = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${item.path}`;
         link.textContent = item.name;
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "icon";
+        iconSpan.textContent = fileIcon(item.name);
+
+        const metaSpan = document.createElement("span");
+        metaSpan.className = "meta";
+        const sizeText = formatSize(item.size);
+        metaSpan.textContent = sizeText ? `(${sizeText})` : "";
+
+        li.appendChild(iconSpan);
         li.appendChild(link);
+        li.appendChild(metaSpan);
+
+        // fetch last modified asynchronously
+        fetchLastModified(item.path).then(date => {
+          if (!date) return;
+          const dateSpan = document.createElement("span");
+          dateSpan.className = "meta";
+          dateSpan.textContent = ` • ${formatDate(date)}`;
+          li.appendChild(dateSpan);
+        });
       }
 
       ul.appendChild(li);
@@ -55,8 +161,15 @@
 
   async function init() {
     const container = document.getElementById("listing");
-    const tree = await buildList("");
-    container.appendChild(tree);
+    try {
+      await loadHiddenConfig();
+      const tree = await buildList("");
+      container.innerHTML = "";
+      container.appendChild(tree);
+    } catch (e) {
+      container.textContent = "Error loading directory listing.";
+      console.error(e);
+    }
   }
 
   init();
